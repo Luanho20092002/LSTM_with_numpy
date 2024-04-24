@@ -1,11 +1,12 @@
 import numpy as np
 
+
 class Relu:
     def forward(self, X) -> None:
-        return X * (X > 0)
+        return np.maximum(0, X)
     
     def backward(self, X) -> None:
-        return (X > 0)
+        return np.where(X > 0, 1, 0)
     
 class Tanh:
     def forward(self, X) -> None:
@@ -16,7 +17,7 @@ class Tanh:
 
 class LSTM:
 
-    def __init__(self, units, active="relu") -> None:
+    def __init__(self, units, active="tanh") -> None:
         self.units = units
         if active == "relu":
             self.active = Relu()
@@ -76,66 +77,70 @@ class LSTM:
 
     def backward(self, dh, optimizer):
         _, timestep, d = self.X.shape
-        dWf  = np.zeros((d, self.units))
-        dWi  = np.zeros((d, self.units))
-        dWu  = np.zeros((d, self.units))
-        dWo  = np.zeros((d, self.units))
+        dWf = np.zeros((d, self.units))
+        dWi = np.zeros((d, self.units))
+        dWu = np.zeros((d, self.units))
+        dWo = np.zeros((d, self.units))
+
         dWhf = np.zeros((self.units, self.units))
         dWhi = np.zeros((self.units, self.units))
         dWhu = np.zeros((self.units, self.units))
         dWho = np.zeros((self.units, self.units))
+
         dbf  = np.zeros((1, self.units))
         dbi  = np.zeros((1, self.units))
         dbu  = np.zeros((1, self.units))
         dbo  = np.zeros((1, self.units))
 
-        dzo = np.zeros_like(dh)
-        dzu = np.zeros_like(dh)
-        dzi = np.zeros_like(dh)
         dzf = np.zeros_like(dh)
-        dc  = np.zeros_like(dh)
+        dzi = np.zeros_like(dh)
+        dzu = np.zeros_like(dh)
+        dzo = np.zeros_like(dh)
+        dc = np.zeros_like(dh)
+        dc_prev = np.zeros_like(dh)
 
         for t in reversed(range(timestep)):
-            x = self.X[:, t]          
+            x = self.X[:, t]   
+
             # dc = dL/dh * dh/dacitve * dactive/dc
-            dc += dh * self.sigmoid(self.zo[t]) * self.active.backward(self.cs[t + 1])
+            dc = dh * self.sigmoid(self.zo[t]) * self.active.backward(self.cs[t + 1]) + dc_prev
 
             # dzo = (dL/dh * dh/do * do/dzo)
-            dzo  += dh * self.active.backward(self.cs[t + 1]) * self.dsigmoid(self.zo[t])
+            dzo  = dh * self.active.forward(self.cs[t + 1]) * self.dsigmoid(self.zo[t])
             dWo  += x.T @ dzo
             dWho += self.hs[t].T @ dzo
             dbo  += np.sum(dzo, axis=0)
 
             # dzu = dL/dc * dc/du * du/dzu
-            dzu  += dc * self.sigmoid(self.zi[t]) * self.active.backward(self.zu[t])
+            dzu  = dc * self.sigmoid(self.zi[t]) * self.active.backward(self.zu[t])
             dWu  += x.T @ dzu
             dWhu += self.hs[t].T @ dzu
             dbu  += np.sum(dzu, axis=0)
 
             # dzi = dL/dc * dc/di * di/dzi
-            dzi  += dc * self.active.forward(self.zu[t]) * self.dsigmoid(self.zi[t])
+            dzi  = dc * self.active.forward(self.zu[t]) * self.dsigmoid(self.zi[t])
             dWi  += x.T @ dzi
             dWhi += self.hs[t].T @ dzi
             dbi  += np.sum(dzi, axis=0)
 
             # dzf = dL/dc * dc/df * df/dzf
-            dzf  += dc * self.cs[t] * self.dsigmoid(self.zf[t])
+            dzf  = dc * self.cs[t] * self.dsigmoid(self.zf[t])
             dWf  += x.T @ dzf
             dWhf += self.hs[t].T @ dzf
             dbf  += np.sum(dzf, axis=0)
 
-            # Update dc-1 and dh-1
-            # dc-1 = dL/dc * dc/dc-1
-            dc += dc * self.sigmoid(self.zf[t])
-            # dh-1 = (dzo @ who) + (dzu @ whu) + (dzi @ whi) + (dzf @ whf)
-            dh += (dzo @ self.params["Who"].T) + (dzu @ self.params["Whu"].T)
-            dh += (dzi @ self.params["Whi"].T) + (dzf @ self.params["Whf"].T)
+            # dc_prev = dL/dc * dc/dc_prev
+            dc_prev = dc * self.sigmoid(self.zf[t])
+            dh = (dzo @ self.params["Who"].T) + (dzu @ self.params["Whu"].T) + (dzi @ self.params["Whi"].T) + (dzf @ self.params["Whf"].T)
+
+        for d in [dWf, dWi, dWu, dWo, dWhf, dWhi, dWhu, dWho, dbf, dbi, dbu, dbo]:
+            np.clip(d, -1, 1, out=d)
         optimizer.update(self, self.params.keys(), dWf, dWi, dWu, dWo, dWhf, dWhi, dWhu, dWho, dbf, dbi, dbu, dbo)
         return dh
 
 
     def sigmoid(self, x):
-        return np.exp(x) / (np.exp(x) + 1)
+        return 1 / (1 + np.exp(-x))
     
     def dsigmoid(self, x):
         return self.sigmoid(x) * (1 - self.sigmoid(x))
