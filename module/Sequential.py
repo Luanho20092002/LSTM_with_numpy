@@ -2,6 +2,9 @@ import numpy as np
 from module.optimizer.Adam import Adam
 from module.optimizer.RMSProp import RMSProp
 from module.optimizer.SGD import SGD
+from module.losses.Categorical_CrossEntropy import Categorical_CrossEntropy
+from module.losses.Mean_Square_Error import Mean_Square_Error
+from module.metrics.RMSE import RMSE
 
 class Sequential:
 
@@ -32,16 +35,16 @@ class Sequential:
                 #Forward
                 A = self.forward(X_batch)
                 #Backpropagation & update weight
-                dZ = (A - y_batch) / batch_size
+                dZ = self.loss.dloss(A, y_batch) / batch_size
                 self.backward(dZ)
+
                 if (b+batch_size) >= mark[curr_mark]:
                     curr_mark += 1
                     print("=", end="")
             print("]", end="")
             y_pred, score = self.evalute(X, y)
-            print(f"  loss: {self.loss(y_pred, y):.4f}, accuracy {score*100:.2f}%") #, self.optimizer.lr)
-            if (score > 0.95):
-                break
+            print(f"  loss: {self.loss.loss(y_pred, y):.4f}, metric: {score:.4f}") #, self.optimizer.lr)
+
             
     def add(self, l):
         self.layers = self.layers + (l,)
@@ -53,18 +56,25 @@ class Sequential:
     
     def evalute(self, Xtest, ytest):
         y_pred = self.predict(Xtest)
-        score = np.mean(np.argmax(y_pred, axis=1) == np.argmax(ytest, axis=1))
-        return y_pred, score
+        # score = np.mean(np.argmax(y_pred, axis=1) == np.argmax(ytest, axis=1))
+        score = self.metric.metric(y_pred, ytest)
+        return self.loss.loss(y_pred, ytest), score
     
-    def compile(self, loss="categorical_crossEntropy", optimizer="adam", metric="accuracy"):
-        if isinstance(optimizer, str):
-            if optimizer == "adam":
-                self.optimizer = Adam()
-            if optimizer == "sgd":
-                self.optimizer = SGD()
-            if optimizer == "rmsprop":
-                self.optimizer = RMSProp()
-        else: self.optimizer = optimizer
+    def compile(self, loss="categorical_crossEntropy", optimizer="adam", metric="accuracy"): 
+        if optimizer == "sgd":
+            self.optimizer = SGD()
+        elif optimizer == "rmsprop":
+            self.optimizer = RMSProp()
+        else: self.optimizer = Adam()
+
+        if loss == "mse":
+            self.loss = Mean_Square_Error()
+        else: self.loss = Categorical_CrossEntropy()
+
+        if metric == "rmse":
+            self.metric = RMSE()
+        else: pass
         
-    def loss(self, y_pred, y_true):
-        return -np.mean(y_true * np.log(y_pred + 1e-8))
+
+
+        
